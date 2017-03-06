@@ -10,4 +10,4 @@ The device requires English International keyboard layout.
 
 Here is a fancy photo of how it looks like:
 
-![Fancy sea theme](https://github.com/Kirill-Marinushkin/umlaut_kb/images/sea_theme.jpg)
+![Fancy sea theme](https://github.com/Kirill-Marinushkin/umlaut_kb/blob/master/images/sea_theme.jpg?raw=true)
