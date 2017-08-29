@@ -1,0 +1,6 @@
+# Add this parameter to the kernel command line.
+# It adds the usbhid ignore-quirk for umlaut_kb vendorID and productID.
+# As a result, the usbhid driver ignores the device, and the umlaut_kb driver
+# matches the device instead.
+usbhid.quirks=0xffff:0x00de:0x04
+
