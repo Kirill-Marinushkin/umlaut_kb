@@ -1,5 +1,0 @@
-# Bind umlaut_kb driver instead of standard usbhid
-
-SUBSYSTEM=="usb", ATTRS{bInterfaceClass}=="03", \
-ATTRS{bInterfaceProtocol}=="de", DRIVER=="usbhid", \
-RUN+="/bin/bash /etc/udev/rules.d/rebind_umlaut_kb.sh $kernel"
