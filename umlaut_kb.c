@@ -16,10 +16,8 @@
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
-#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/kref.h>
-#include <linux/uaccess.h>
 #include <linux/usb.h>
 #include <linux/mutex.h>
 #include <linux/hid.h>
@@ -58,6 +56,8 @@ struct umlaut_kb_data {
 	struct urb *bulk_in_urb;
 	__u8 bulk_in_buffer[EP_BUF_SIZE];
 	struct kref kref;
+	spinlock_t slock;
+	struct mutex mut;
 };
 
 #define to_umlaut_kb_dev(d) container_of(d, struct umlaut_kb_data, kref)
@@ -117,6 +117,8 @@ static void umlaut_kb_close(struct input_dev *input)
 
 	usb_kill_urb(dev->bulk_in_urb);
 
+	usb_autopm_put_interface(dev->interface);
+
 	/* decrement the count on our device */
 	kref_put(&dev->kref, umlaut_kb_delete);
 }
@@ -126,6 +128,9 @@ static void umlaut_kb_ep_irq(struct urb *urb)
 	struct umlaut_kb_data *dev = urb->context;
 	struct usb_interface *intf = dev->interface;
 	int error;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->slock, flags);
 
 	switch (urb->status) {
 	case 0:
@@ -136,6 +141,9 @@ static void umlaut_kb_ep_irq(struct urb *urb)
 	case -ESHUTDOWN:
 		dev_dbg(&intf->dev, "urb ignored status: %d\n",
 			urb->status);
+
+		spin_unlock_irqrestore(&dev->slock, flags);
+
 		return;
 	default:
 		dev_dbg(&intf->dev, "urb submit status: %d\n", urb->status);
@@ -162,6 +170,8 @@ exit:
 	error = usb_submit_urb(dev->bulk_in_urb, GFP_ATOMIC);
 	if (error)
 		dev_err(&intf->dev, "urb failed with code: %d\n", error);
+
+	spin_unlock_irqrestore(&dev->slock, flags);
 }
 
 static int umlaut_kb_probe(struct usb_interface *interface,
@@ -177,6 +187,8 @@ static int umlaut_kb_probe(struct usb_interface *interface,
 		return -ENOMEM;
 
 	kref_init(&dev->kref);
+	spin_lock_init(&dev->slock);
+	mutex_init(&dev->mut);
 
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
 	dev->interface = interface;
@@ -211,11 +223,11 @@ static int umlaut_kb_probe(struct usb_interface *interface,
 	dev->input->open = umlaut_kb_open;
 	dev->input->close = umlaut_kb_close;
 
-	__set_bit(EV_KEY, dev->input->evbit);
-	__set_bit(KEY_RIGHTALT, dev->input->keybit);
+	set_bit(EV_KEY, dev->input->evbit);
+	set_bit(KEY_RIGHTALT, dev->input->keybit);
 
 	for (i = 0; i < ARRAY_SIZE(keycodes); i++)
-		__set_bit(keycodes[i], dev->input->keybit);
+		set_bit(keycodes[i], dev->input->keybit);
 
 	usb_make_path(dev->udev, dev->phys, sizeof(dev->phys));
 	strlcat(dev->phys, "/input0", sizeof(dev->phys));
@@ -253,13 +265,16 @@ static void umlaut_kb_disconnect(struct usb_interface *interface)
 	struct umlaut_kb_data *dev;
 
 	dev = usb_get_intfdata(interface);
+
+	mutex_lock(&dev->mut);
+
 	usb_set_intfdata(interface, NULL);
 
 	input_unregister_device(dev->input);
 
-	usb_free_coherent(dev->udev, EP_BUF_SIZE,
-			  dev->bulk_in_buffer, dev->bulk_in_urb->transfer_dma);
 	usb_free_urb(dev->bulk_in_urb);
+
+	mutex_unlock(&dev->mut);
 
 	dev_info(&interface->dev, "Device disconnected.\n");
 }
